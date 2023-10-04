@@ -9,7 +9,7 @@ int main(int argc, char *argv[]) {
   }
 
   // 画像の読み込み
-  cv::Mat img = cv::imread(argv[1]);
+  cv::Mat img = cv::imread(argv[1], cv::IMREAD_ANYCOLOR);
   if (img.empty()) {  // 画像ファイルが見つからない場合の処理
     printf("Input image is not found.\n");
     return EXIT_FAILURE;
