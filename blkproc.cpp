@@ -1,26 +1,18 @@
-#include <cmath>
 #include <cstdio>
 #include <cstdlib>
-#include <functional>
 #include <opencv2/opencv.hpp>
 #include <vector>
 
-constexpr int DCTSIZE = 8;
-
-int clip(int v);
-void myBGR2YCbCr(cv::Mat &in, cv::Mat &out);
-void myYCbCr2BGR(cv::Mat &in, cv::Mat &out);
-void quantize(cv::Mat &in, float stepsize);
-void blkproc(cv::Mat &in, std::function<void(cv::Mat &)> func);
-void mozaic(cv::Mat &);
-void line_mozaic(cv::Mat &);
-
-void block_dct2(cv::Mat &);
-void block_idct2(cv::Mat &);
+#include "qtables.hpp"
+#include "tools.hpp"
 
 int main(int argc, char *argv[]) {
   if (argc < 2) {
     printf("Input image is required.\n");
+    return EXIT_FAILURE;
+  }
+  if (argc < 3) {
+    printf("Qfactor is missing.\n");
     return EXIT_FAILURE;
   }
 
@@ -31,9 +23,15 @@ int main(int argc, char *argv[]) {
     return EXIT_FAILURE;
   }
 
-  // int W = rgb.cols;
-  // int H = rgb.rows;
-  // int nc = rgb.channels();
+  int QF = strtol(argv[2], nullptr, 10);
+  if (QF < 0 || QF > 100) {
+    printf("The valid range of qfactor is from 0 to 100.\n");
+    return EXIT_FAILURE;
+  }
+
+  int qtables[2][DCTSIZE * DCTSIZE];
+  create_qtable(0, QF, &qtables[0][0]);
+  create_qtable(1, QF, &qtables[1][0]);
 
   cv::Mat YCbCr = rgb.clone();
   cv::Mat recimg = rgb.clone();
@@ -47,15 +45,15 @@ int main(int argc, char *argv[]) {
   for (size_t c = 0; c < buf.size(); ++c) {
     buf[c].convertTo(buf_f[c], CV_32F);  // 浮動小数点に変換
     buf[c] -= 128;  // 全画素の値から128を引く(DCレベルシフト)
-    blkproc(buf_f[c], block_dct2);  // 順方向のDCT
-    // 量子化
+    blkproc(buf_f[c], blk::dct2);                      // 順方向のDCT
+    blkproc(buf_f[c], blk::quantize, qtables[c > 0]);  // 量子化
     // ハフマン符号化
   }
   // ------ DECODE
   for (size_t c = 0; c < buf.size(); ++c) {
     // ハフマン復号
-    // 逆量子化
-    blkproc(buf_f[c], block_idct2);  // 逆方向のDCT
+    blkproc(buf_f[c], blk::dequantize, qtables[c > 0]);  // 逆量子化
+    blkproc(buf_f[c], blk::idct2);                       // 逆方向のDCT
     buf[c] += 128;
     buf_f[c].convertTo(buf[c], CV_8U);  // 8bitの符号なし整数に変換
   }
@@ -76,136 +74,4 @@ int main(int argc, char *argv[]) {
   cv::destroyAllWindows();
 
   return EXIT_SUCCESS;
-}
-
-int clip(int v) {
-  if (v > 255) {
-    v = 255;
-  }
-  if (v < 0) {
-    v = 0;
-  }
-  return v;
-}
-
-void myBGR2YCbCr(cv::Mat &in, cv::Mat &out) {
-  int W = in.cols;
-  int H = in.rows;
-  int nc = in.channels();
-
-  for (int y = 0; y < H; ++y) {
-    for (int x = 0; x < nc * W; x += nc) {
-      // BGR|BGR|BGR|BGR|...
-      int idx = y * nc * W + x;
-      int B = in.data[idx];
-      int G = in.data[idx + 1];
-      int R = in.data[idx + 2];
-      int Y = 0.299 * R + 0.587 * G + 0.114 * B;
-      int Cb = -0.169 * R - 0.331 * G + 0.5 * B;
-      int Cr = 0.5 * R - 0.419 * G - 0.081 * B;
-      out.data[idx] = clip(Y);
-      out.data[idx + 1] = clip(Cb + 128);
-      out.data[idx + 2] = clip(Cr + 128);
-    }
-  }
-}
-
-void myYCbCr2BGR(cv::Mat &in, cv::Mat &out) {
-  int W = in.cols;
-  int H = in.rows;
-  int nc = in.channels();
-
-  for (int y = 0; y < H; ++y) {
-    for (int x = 0; x < nc * W; x += nc) {
-      // BGR|BGR|BGR|BGR|...
-      int idx = y * nc * W + x;
-      int Y = in.data[idx];
-      int Cb = in.data[idx + 1] - 128;
-      int Cr = in.data[idx + 2] - 128;
-
-      int R = Y + 1.402 * Cr;
-      int G = Y - 0.344 * Cb - 0.714 * Cr;
-      int B = Y + 1.772 * Cb;
-      out.data[idx] = clip(B);
-      out.data[idx + 1] = clip(G);
-      out.data[idx + 2] = clip(R);
-    }
-  }
-}
-
-void quantize(cv::Mat &in, float stepsize) {
-  int W = in.cols;
-  int H = in.rows;
-  int nc = in.channels();
-
-  for (int y = 0; y < H; ++y) {
-    for (int x = 0; x < nc * W; x += nc) {
-      // BGR|BGR|BGR|BGR|...
-      int idx = y * nc * W + x;
-      int Y = in.data[idx];
-      int Cb = in.data[idx + 1];
-      int Cr = in.data[idx + 2];
-
-      // Y = floor((floor(Y / stepsize) + 0.5) * stepsize);
-      Cb = floor((floor(Cb / stepsize) + 0.5) * stepsize);
-      Cr = floor((floor(Cr / stepsize) + 0.5) * stepsize);
-
-      in.data[idx] = clip(Y);
-      in.data[idx + 1] = clip(Cb);
-      in.data[idx + 2] = clip(Cr);
-    }
-  }
-}
-
-void blkproc(cv::Mat &in, std::function<void(cv::Mat &)> func) {
-  for (int y = 0; y < in.rows; y += DCTSIZE) {
-    for (int x = 0; x < in.cols; x += DCTSIZE) {
-      cv::Mat blk_in, blk_out;
-      blk_in = in(cv::Rect(x, y, DCTSIZE, DCTSIZE)).clone();
-      blk_out = in(cv::Rect(x, y, DCTSIZE, DCTSIZE));
-      func(blk_in);
-      blk_in.convertTo(blk_out, blk_out.type());
-    }
-  }
-}
-
-void mozaic(cv::Mat &in) {  // 8x8 ブロック内の値を左上の値で塗りつぶす処理
-  if (in.rows != DCTSIZE || in.cols != DCTSIZE || in.channels() != 1) {
-    printf("input for mozaic() shall be 8x8 and monochrome.\n");
-    exit(EXIT_FAILURE);
-  }
-  for (int y = 0; y < in.rows; ++y) {
-    for (int x = 0; x < in.cols; ++x) {
-      in.data[y * DCTSIZE + x] = in.data[0];
-    }
-  }
-}
-
-void line_mozaic(
-    cv::Mat &in) {  // 8x8 ブロック内の各行を各行の先頭の値で塗りつぶす処理
-  if (in.rows != DCTSIZE || in.cols != DCTSIZE || in.channels() != 1) {
-    printf("input for mozaic() shall be 8x8 and monochrome.\n");
-    exit(EXIT_FAILURE);
-  }
-  for (int y = 0; y < in.rows; ++y) {
-    for (int x = 0; x < in.cols; ++x) {
-      in.data[y * DCTSIZE + x] = in.data[y * DCTSIZE];
-    }
-  }
-}
-
-void block_dct2(cv::Mat &in) {
-  if (in.rows != DCTSIZE || in.cols != DCTSIZE || in.channels() != 1) {
-    printf("input for block_dct2() shall be 8x8 and monochrome.\n");
-    exit(EXIT_FAILURE);
-  }
-  cv::dct(in, in);
-}
-
-void block_idct2(cv::Mat &in) {
-  if (in.rows != DCTSIZE || in.cols != DCTSIZE || in.channels() != 1) {
-    printf("input for block_idct2() shall be 8x8 and monochrome.\n");
-    exit(EXIT_FAILURE);
-  }
-  cv::idct(in, in);
 }
