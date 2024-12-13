@@ -2,11 +2,17 @@
 #include <cstdio>
 #include <cstdlib>
 #include <opencv2/opencv.hpp>
+#include <vector>
+#include <functional>
+
+constexpr int DCTSIZE=8;
 
 int clip(int v);
 void myBGR2YCbCr(cv::Mat &in, cv::Mat &out);
 void myYCbCr2BGR(cv::Mat &in, cv::Mat &out);
 void quantize(cv::Mat &in, float stepsize);
+void blkproc(cv::Mat &in,std::function<void(cv::Mat &)>func);
+void line_mozaic(cv::Mat &);
 
 int main(int argc, char *argv[]) {
   if (argc < 2) {
@@ -15,28 +21,37 @@ int main(int argc, char *argv[]) {
   }
 
   // 画像の読み込み
-  cv::Mat img = cv::imread(argv[1], cv::IMREAD_ANYCOLOR);
-  if (img.empty()) {  // 画像ファイルが見つからない場合の処理
+  cv::Mat rgb = cv::imread(argv[1], cv::IMREAD_ANYCOLOR);
+  if (rgb.empty()) {  // 画像ファイルが見つからない場合の処理
     printf("Input image is not found.\n");
     return EXIT_FAILURE;
   }
 
-  // int W = img.cols;
-  // int H = img.rows;
-  // int nc = img.channels();
+  // int W = rgb.cols;
+  // int H = rgb.rows;
+  // int nc = rgb.channels();
 
-  cv::Mat YCbCr = img.clone();
-  cv::Mat img2 = img.clone();
+  cv::Mat YCbCr = rgb.clone();
+  cv::Mat recimg = rgb .clone() ;
 
-  myBGR2YCbCr(img, YCbCr);
-  quantize(YCbCr, 32);
-  myYCbCr2BGR(YCbCr, img2);
+  myBGR2YCbCr(rgb, YCbCr);
+  std::vector<cv::Mat> buf(3);
+  cv::split(YCbCr,buf);
+ 
+ for(size_t  c = 0; c < buf.size();++c){
+
+  blkproc(buf[c],line_mozaic);
+ }
+  cv::merge(buf,YCbCr);
+  myYCbCr2BGR(YCbCr, recimg);
 
   // 画像の表示
-  cv::imshow("RGB", img);
-  cv::imshow("YCbCr->RGB", img2);
+  cv::imshow("RGB", rgb);
+  cv::imshow("YCbCr->RGB", recimg);
   // キー入力を待つ
-  cv::waitKey();
+  int keycode;
+  do{keycode =  cv::waitKey();
+  }while(keycode != 'q');
   // 全てのウインドウを破棄
   cv::destroyAllWindows();
 
@@ -120,4 +135,38 @@ void quantize(cv::Mat &in, float stepsize) {
       in.data[idx + 2] = clip(Cr);
     }
   }
+}
+
+void blkproc(cv::Mat &in,std::function<void(cv::Mat &)>func){
+for (int y = 0; y < in.rows; y += DCTSIZE) {
+for (int x = 0; x < in.cols; x += DCTSIZE) {
+cv:: Mat blk_in, blk_out;
+blk_in = in(cv:: Rect(x, y, DCTSIZE, DCTSIZE)) .clone();
+blk_out = in(cv:: Rect(x, y, DCTSIZE, DCTSIZE)) ;
+func(blk_in);
+blk_in.convertTo(blk_out, blk_out.type());
+  }
+ }
+}
+void mozaic(cv::Mat &in){
+    if(in.rows!=DCTSIZE||in.cols!=DCTSIZE||in.channels()!=1){
+        printf("input for mozaic() shall be 8x8 monochrome.\n");
+        exit(EXIT_FAILURE);
+    }
+    for (int y = 0; y < in.rows; ++y){
+    for (int x = 0; x < in.cols; ++x ){
+        in.data[y*DCTSIZE+x]=in.data[0];
+    }   
+    }
+}
+void line_mozaic(cv::Mat &in){
+    if(in.rows!=DCTSIZE||in.cols!=DCTSIZE||in.channels()!=1){
+        printf("input for mozaic() shall be 8x8 monochrome.\n");
+        exit(EXIT_FAILURE);
+    }
+    for (int y = 0; y < in.rows; ++y){
+    for (int x = 0; x < in.cols; ++x ){
+        in.data[y*DCTSIZE+x]=in.data[y*DCTSIZE];
+    }   
+    }
 }

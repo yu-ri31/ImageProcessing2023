@@ -36,3 +36,6 @@ target_link_libraries(color ${OpenCV_LIBS})
 
 add_executable(blkproc blkproc.cpp)
 target_link_libraries(blkproc ${OpenCV_LIBS})
+
+add_executable(blkproc2 blkproc2.cpp)
+target_link_libraries(blkproc2 ${OpenCV_LIBS})

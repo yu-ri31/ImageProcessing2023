@@ -22,7 +22,9 @@ int main(int argc, char *argv[]) {
 
   const int xsize = 3;
   const int ysize = 3;
-  float c[9] = {-1, -1, -1, -1, 9, -1, -1, -1, -1};
+  float c[9] = {-1, -1, -1, 
+                -1, 9, -1, 
+                -1, -1, -1};
   auto coeff = std::make_unique<float[]>(xsize * ysize);
   for (int i = 0; i < xsize * ysize; ++i) {
     coeff[i] = c[i];

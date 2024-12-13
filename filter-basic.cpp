@@ -27,13 +27,13 @@ int main(int argc, char *argv[]) {
   in = img.data;
   out = img_out.data;
 
-  // clang-format off
+ // clang-format off
   float filter[9] = {
     0, -1, 0,
-    -1,  5, -1,
+    -1, 5, -1,
     0, -1, 0
   };
-  // clang-format on
+   // clang-format on
 
   auto filter3x3 = [](uint8_t *p, const int stride, float *filter,
                       const int N2) {
